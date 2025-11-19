@@ -181,7 +181,7 @@ else:
             
             else: # Standard
                 c1, c2 = st.columns(2)
-                bks = run_query(conn, "SELECT id_ksiazki, tytul, id_filii FROM KSIAZKI_CALOSC WHERE status='dostępna'")
+                bks = run_query(conn, f"SELECT id_ksiazki, tytul, id_filii FROM KSIAZKI_CALOSC WHERE status='dostępna' AND id_filii = {current_filia_id}")
                 rds = run_query(conn, "SELECT id_czytelnika, nazwisko FROM CZYTELNICY_CALOSC")
                 
                 bk_idx = c1.selectbox("Książka", bks.index, format_func=lambda x: bks.iloc[x]['TYTUL']) if not bks.empty else None
@@ -212,29 +212,42 @@ else:
             st.subheader("Proces Zwrotu")
             
             rents = run_query(conn, "SELECT * FROM V_AKTUALNE_WYPOZYCZENIA")
+            
             if not rents.empty:
                 sel = st.selectbox("Aktywne Wypożyczenie", rents.index, format_func=lambda x: f"{rents.iloc[x]['TYTUL']} ({rents.iloc[x]['CZYTELNIK']}) - Właściciel: {rents.iloc[x]['FILIA_KSIAZKI']}")
                 d = rents.iloc[sel]
                 
                 if st.button("Zatwierdź Zwrot"):
-                    det = run_query(conn, f"SELECT id_ksiazki, id_filii_ksiazki FROM WYPOZYCZENIA_CALOSC WHERE id_wypozyczenia = {d['ID_WYPOZYCZENIA']}")
+                    det = run_query(conn, f"SELECT id_wypozyczenia, id_ksiazki, id_filii_ksiazki FROM WYPOZYCZENIA_CALOSC WHERE id_wypozyczenia = {d['ID_WYPOZYCZENIA']}")
+                    
                     if not det.empty:
-                        fid = int(det.iloc[0]['ID_FILII_KSIAZKI'])
-                        if fid == 1:
-                            is_local = selected_db_name.startswith("FILIA 1")
-                            suffix = "" if is_local else "@filia1_link"
+                        loan_row = det.iloc[0]
+                        fid_ksiazki = int(loan_row['ID_FILII_KSIAZKI'])
+                        bid = int(loan_row['ID_KSIAZKI'])
+                        lid = int(loan_row['ID_WYPOZYCZENIA'])
+                        
+                        if fid_ksiazki != current_filia_id:
+                            target_name = d['FILIA_KSIAZKI'] 
+                            st.error(f"BŁĄD: Nie można zwrócić tej książki w tej placówce!")
+                            st.warning(f"Ta książka fizycznie należy do: **{target_name}**.")
+                            st.info("Proszę odesłać czytelnika do właściwej filii lub zalogować się na właściwy węzeł.")
+                        
                         else:
-                            is_local = selected_db_name.startswith("FILIA 2")
-                            suffix = "" if is_local else "@filia2_link"
-                        
-                        success, msg = run_transaction(conn,
-                            [f"UPDATE KSIAZKI{suffix} SET status = 'dostępna' WHERE id_ksiazki = :1",
-                             f"UPDATE WYPOZYCZENIA{suffix} SET data_zwrotu = SYSDATE WHERE id_wypozyczenia = :1"],
-                            [[int(det.iloc[0]['ID_KSIAZKI'])], [int(d['ID_WYPOZYCZENIA'])]])
-                        
-                        if success: st.success("Zwrot przetworzony."); time.sleep(1); st.rerun()
-                        else: st.error(msg)
-            else: st.info("Brak aktywnych wypożyczeń.")
+                            success, msg = run_transaction(conn,
+                                [f"UPDATE KSIAZKI SET status = 'dostępna' WHERE id_ksiazki = :1",
+                                 f"UPDATE WYPOZYCZENIA SET data_zwrotu = SYSDATE WHERE id_wypozyczenia = :1"],
+                                [[bid], [lid]])
+                            
+                            if success: 
+                                st.success("Zwrot przyjęty pomyślnie.")
+                                time.sleep(1)
+                                st.rerun()
+                            else: 
+                                st.error(msg)
+                    else:
+                        st.error("Nie znaleziono danych wypożyczenia.")
+            else:
+                st.info("Brak aktywnych wypożyczeń w systemie.")
 
         elif admin_menu == "Wprowadzanie Danych":
             st.header("Wprowadzanie Danych")
