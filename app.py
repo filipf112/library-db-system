@@ -303,26 +303,35 @@ else:
                         else: st.error(msg)
 
             with t3:
-                st.info("Replikacja aktywna: Autor zostanie dodany do obu węzłów.")
+                st.info("Replikacja Database-Level: Trigger w bazie automatycznie prześle dane do drugiej filii.")
                 with st.form("a_form"):
-                    nm = st.text_input("Imię"); sn = st.text_input("Nazwisko")
+                    nm = st.text_input("Imię")
+                    sn = st.text_input("Nazwisko")
+                    
                     if st.form_submit_button("Dodaj Autora"):
                         try:
-                            id_src = "autorzy_seq_f1.NEXTVAL" if selected_db_name.startswith("FILIA 1") else "autorzy_seq_f1.NEXTVAL@filia1_link"
-                            nid = int(run_query(conn, f"SELECT {id_src} FROM DUAL").iloc[0][0])
+                            # 1. Pobieramy ID z LOKALNEJ sekwencji (zależnie gdzie jesteśmy)
+                            # Jeśli jesteśmy w Filii 1, to weźmie seq_f1, jeśli w F2 to seq_f2.
                             
-                            if selected_db_name.startswith("FILIA 1"):
-                                t1, t2 = "AUTORZY", "AUTORZY@filia2_link"
+                            if current_filia_id == 1:
+                                seq_sql = "SELECT autorzy_seq_f1.NEXTVAL FROM DUAL"
                             else:
-                                t1, t2 = "AUTORZY", "AUTORZY@filia1_link"
+                                seq_sql = "SELECT autorzy_seq_f2.NEXTVAL FROM DUAL"
+                                
+                            nid = int(run_query(conn, seq_sql).iloc[0][0])
                             
+                            # 2. Wykonujemy TYLKO JEDEN lokalny insert
                             success, msg = run_transaction(conn, 
-                                [f"INSERT INTO {t1} (id_autora, imie, nazwisko) VALUES (:1, :2, :3)",
-                                 f"INSERT INTO {t2} (id_autora, imie, nazwisko) VALUES (:1, :2, :3)"],
-                                [[nid, nm, sn], [nid, nm, sn]])
-                            if success: st.success("Autor zreplikowany."); 
-                            else: st.error(msg)
-                        except Exception as e: st.error(f"Błąd: {e}")
+                                ["INSERT INTO AUTORZY (id_autora, imie, nazwisko) VALUES (:1, :2, :3)"],
+                                [[nid, nm, sn]])
+                            
+                            if success: 
+                                st.success(f"Autor dodany (ID: {nid}). Trigger zreplikował dane.")
+                            else: 
+                                st.error(msg)
+                                
+                        except Exception as e: 
+                            st.error(f"Błąd: {e}")
 
         elif admin_menu == "Raporty":
             st.header("Raporty Globalne")
